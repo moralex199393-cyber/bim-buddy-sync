@@ -17,6 +17,11 @@ serve(async (req) => {
 
   try {
     const { message, history = [] } = await req.json();
+    
+    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    if (!LOVABLE_API_KEY) {
+      throw new Error('LOVABLE_API_KEY is not configured');
+    }
 
     // Создаем системное сообщение для BIM-менеджера
     const systemMessage: Message = {
@@ -40,32 +45,52 @@ serve(async (req) => {
       { role: 'user', content: message }
     ];
 
-    console.log('Sending request to OpenRouter with DeepSeek...');
+    console.log('Sending request to Lovable AI Gateway...');
 
-    // Используем бесплатную модель DeepSeek через OpenRouter
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://lovable.dev',
-        'X-Title': 'Revit BIM Assistant'
       },
       body: JSON.stringify({
-        model: 'deepseek/deepseek-chat',
+        model: 'google/gemini-2.5-flash',
         messages: messages,
-        temperature: 0.7,
-        max_tokens: 1000
       }),
     });
 
     if (!response.ok) {
+      if (response.status === 429) {
+        return new Response(
+          JSON.stringify({ 
+            error: 'Превышен лимит запросов. Пожалуйста, попробуйте позже.',
+            response: 'Превышен лимит запросов. Пожалуйста, попробуйте позже.'
+          }), 
+          {
+            status: 429,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
+      }
+      if (response.status === 402) {
+        return new Response(
+          JSON.stringify({ 
+            error: 'Требуется пополнение баланса.',
+            response: 'Требуется пополнение баланса.'
+          }), 
+          {
+            status: 402,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
+      }
       const errorText = await response.text();
-      console.error('OpenRouter API error:', errorText);
-      throw new Error(`OpenRouter API error: ${response.status}`);
+      console.error('Lovable AI Gateway error:', response.status, errorText);
+      throw new Error(`AI Gateway error: ${response.status}`);
     }
 
     const data = await response.json();
-    console.log('OpenRouter response received');
+    console.log('AI response received');
 
     const aiResponse = data.choices?.[0]?.message?.content || 
                        'Извините, не могу обработать ваш запрос в данный момент.';
